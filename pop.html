@@ -1,0 +1,685 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Secure Admin Panel</title>
+
+<!-- SHA256 -->
+<script src="https://cdn.jsdelivr.net/npm/js-sha256/build/sha256.min.js"></script>
+
+<style>
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:Arial,sans-serif;
+}
+
+body{
+background:#050505;
+color:white;
+display:flex;
+justify-content:center;
+padding:20px;
+}
+
+.panel{
+width:480px;
+background:#0d0d0d;
+padding:25px;
+border-radius:18px;
+border:1px solid rgba(255,0,0,0.3);
+box-shadow:0 0 20px rgba(255,0,0,0.2);
+}
+
+h2,h3{
+text-align:center;
+color:#ff1a1a;
+margin-bottom:12px;
+}
+
+input,textarea,select{
+width:100%;
+padding:12px;
+margin:6px 0;
+background:#141414;
+border:1px solid #333;
+color:white;
+border-radius:10px;
+outline:none;
+}
+
+button{
+width:100%;
+padding:12px;
+margin-top:6px;
+border:none;
+border-radius:10px;
+background:#ff1a1a;
+color:white;
+font-weight:bold;
+cursor:pointer;
+}
+
+button:hover{
+background:#cc0000;
+}
+
+.hidden{
+display:none;
+}
+
+.item{
+background:#1a1a1a;
+padding:12px;
+border-radius:10px;
+margin-top:10px;
+line-height:1.6;
+}
+
+.greenBtn{
+background:#25D366;
+}
+
+.redBtn{
+background:#ff0000;
+}
+
+.counter{
+text-align:center;
+margin-top:10px;
+}
+
+.adminTag{
+text-align:center;
+color:#25D366;
+font-weight:bold;
+margin-bottom:10px;
+}
+
+a{
+color:#25D366;
+text-decoration:none;
+}
+</style>
+</head>
+<body>
+
+<div class="panel">
+
+<h2>🔐 SECURE PANEL</h2>
+
+<!-- LOGIN -->
+<div id="loginBox">
+<h3>Connexion</h3>
+<input id="loginUser" placeholder="Utilisateur">
+<input id="loginPass" type="password" placeholder="Mot de passe">
+<button onclick="login()">Connexion</button>
+<button onclick="showRegister()">Créer un compte</button>
+</div>
+
+<!-- REGISTER -->
+<div id="registerBox" class="hidden">
+<h3>Inscription</h3>
+<input id="regCode" placeholder="Code d'accès">
+<input id="regUser" placeholder="Utilisateur">
+<input id="regPass" type="password" placeholder="Mot de passe">
+<button onclick="register()">Créer compte</button>
+<button onclick="showLogin()">Retour</button>
+</div>
+
+<!-- APP -->
+<div id="app" class="hidden">
+
+<div class="adminTag" id="adminTag"></div>
+
+<h3>👤 <span id="userDisplay"></span></h3>
+
+<input id="clientNumber" placeholder="Numéro client">
+<input id="contactNumber" placeholder="Numéro contact">
+<input id="date" type="date">
+
+<select id="plan">
+<option>BASIC</option>
+<option>PREMIUM</option>
+<option>VIP</option>
+</select>
+
+<textarea id="desc" placeholder="Description"></textarea>
+
+<button onclick="sendOrder()">📩 Commander</button>
+
+<div class="counter">
+📊 Total : <span id="count">0</span>
+</div>
+
+<div id="history"></div>
+
+<!-- USERS -->
+<div id="adminUsers" class="hidden">
+<h3>👥 Utilisateurs</h3>
+<div id="usersList"></div>
+</div>
+
+<!-- LINKS -->
+<h3>🔗 Liens</h3>
+
+<div id="linksBox"></div>
+
+<input id="linkTitle" placeholder="Nom du lien">
+<input id="linkUrl" placeholder="https://...">
+<button onclick="addLink()">➕ Ajouter lien</button>
+
+<!-- CODES -->
+<div id="codesPanel" class="hidden">
+<h3>🔑 Codes d'accès</h3>
+<input id="newCode" placeholder="Nouveau code">
+<button onclick="createCode()">➕ Créer code</button>
+<div id="codesList"></div>
+</div>
+
+<button onclick="logout()">Déconnexion</button>
+
+</div>
+</div>
+
+<script type="module">
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+
+import {
+getFirestore,
+collection,
+addDoc,
+getDocs,
+deleteDoc,
+doc,
+updateDoc,
+onSnapshot
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+// FIREBASE
+
+const firebaseConfig = {
+apiKey: "AIzaSyAzbfEAEo80mOP4EgmYgfGV8npu17gojdI",
+authDomain: "cobra-cd37c.firebaseapp.com",
+projectId: "cobra-cd37c",
+storageBucket: "cobra-cd37c.firebasestorage.app",
+messagingSenderId: "209372617251",
+appId: "1:209372617251:web:6a57378a2d1cb809f06f96"
+};
+
+const appFirebase = initializeApp(firebaseConfig);
+const db = getFirestore(appFirebase);
+
+// ADMIN
+
+const ADMIN_USER = "admin";
+
+const ADMIN_HASH =
+"03ac674216f3e15c761ee1a5e255f067953623c8b388b4459e13f978d7c846f4";
+
+let currentUser = localStorage.getItem("currentUser");
+let isAdmin = false;
+
+// ELEMENTS
+
+const loginBox = document.getElementById("loginBox");
+const registerBox = document.getElementById("registerBox");
+const app = document.getElementById("app");
+const history = document.getElementById("history");
+const count = document.getElementById("count");
+const adminTag = document.getElementById("adminTag");
+const userDisplay = document.getElementById("userDisplay");
+const usersList = document.getElementById("usersList");
+const linksBox = document.getElementById("linksBox");
+const adminUsers = document.getElementById("adminUsers");
+const codesPanel = document.getElementById("codesPanel");
+const codesList = document.getElementById("codesList");
+
+// SECURITY
+
+function cleanInput(str){
+return str
+.replace(/</g,"")
+.replace(/>/g,"")
+.replace(/script/gi,"")
+.trim();
+}
+
+function escapeHtml(text){
+const div = document.createElement("div");
+div.innerText = text;
+return div.innerHTML;
+}
+
+// UI
+
+window.showRegister = function(){
+loginBox.classList.add("hidden");
+registerBox.classList.remove("hidden");
+}
+
+window.showLogin = function(){
+registerBox.classList.add("hidden");
+loginBox.classList.remove("hidden");
+}
+
+// REGISTER
+
+window.register = async function(){
+
+let u = cleanInput(document.getElementById("regUser").value);
+let p = document.getElementById("regPass").value.trim();
+let code = cleanInput(document.getElementById("regCode").value);
+
+if(!u || !p || !code){
+return alert("Remplissez tous les champs");
+}
+
+const snapCodes = await getDocs(collection(db,"codes"));
+
+let validCode = null;
+let codeId = null;
+
+snapCodes.forEach((d)=>{
+const data = d.data();
+
+if(
+data.code === code &&
+data.active === true &&
+data.used === false
+){
+validCode = data;
+codeId = d.id;
+}
+});
+
+if(!validCode){
+return alert("Code invalide");
+}
+
+await updateDoc(doc(db,"codes",codeId),{
+used:true,
+owner:u
+});
+
+const snap = await getDocs(collection(db,"users"));
+
+let exists = false;
+
+snap.forEach((d)=>{
+if(d.data().username === u){
+exists = true;
+}
+});
+
+if(exists){
+return alert("Utilisateur déjà existant");
+}
+
+await addDoc(collection(db,"users"),{
+username:u,
+password:sha256(p),
+approved:true,
+role:"user",
+created:new Date().toISOString()
+});
+
+alert("Compte créé !");
+showLogin();
+}
+
+// LOGIN
+
+window.login = async function(){
+
+let u = cleanInput(document.getElementById("loginUser").value);
+let p = document.getElementById("loginPass").value.trim();
+
+if(
+u === ADMIN_USER &&
+sha256(p) === ADMIN_HASH
+){
+
+isAdmin = true;
+currentUser = "ADMIN";
+
+localStorage.setItem("currentUser","ADMIN");
+
+loadApp();
+return;
+}
+
+const snap = await getDocs(collection(db,"users"));
+
+let found = false;
+
+snap.forEach((d)=>{
+
+const data = d.data();
+
+if(
+data.username === u &&
+data.password === sha256(p)
+){
+
+if(data.approved === true){
+found = true;
+}
+
+}
+
+});
+
+if(!found){
+return alert("Compte non autorisé");
+}
+
+isAdmin = false;
+currentUser = u;
+
+localStorage.setItem("currentUser",u);
+
+loadApp();
+}
+
+// LOAD APP
+
+function loadApp(){
+
+loginBox.classList.add("hidden");
+registerBox.classList.add("hidden");
+app.classList.remove("hidden");
+
+userDisplay.textContent = currentUser;
+
+adminTag.textContent =
+isAdmin ? "🔐 MODE ADMIN" : "";
+
+if(isAdmin){
+adminUsers.classList.remove("hidden");
+loadUsers();
+codesPanel.classList.remove("hidden");
+loadCodes();
+}
+
+loadOrders();
+loadLinks();
+}
+
+// SEND ORDER
+
+window.sendOrder = async function(){
+
+const client = cleanInput(document.getElementById("clientNumber").value);
+const contact = cleanInput(document.getElementById("contactNumber").value);
+const date = document.getElementById("date").value;
+const plan = document.getElementById("plan").value;
+const desc = cleanInput(document.getElementById("desc").value);
+
+if(!client || !contact || !date){
+return alert("Veuillez remplir les champs");
+}
+
+await addDoc(collection(db,"orders"),{
+owner: currentUser,
+client,
+contact,
+date,
+plan,
+desc,
+status:"pending",
+createdAt: Date.now(),
+time:new Date().toLocaleString()
+});
+
+alert("Commande enregistrée");
+
+loadOrders();
+}
+
+// LOAD ORDERS
+
+function loadOrders(){
+
+history.innerHTML = "";
+
+onSnapshot(collection(db,"orders"),(snap)=>{
+
+history.innerHTML = "";
+
+let total = 0;
+
+snap.forEach((d)=>{
+
+const i = d.data();
+const id = d.id;
+
+if(!isAdmin && i.owner !== currentUser){
+return;
+}
+
+let div = document.createElement("div");
+
+div.className = "item";
+
+div.innerHTML = `
+<b>📦 ${escapeHtml(i.plan)}</b><br><br>
+👤 Client : ${escapeHtml(i.client)}<br>
+📞 Contact : ${escapeHtml(i.contact)}<br>
+📅 Date : ${escapeHtml(i.date)}<br>
+📝 ${escapeHtml(i.desc)}<br><br>
+📌 Statut : <b style="color:orange">${escapeHtml(i.status || "pending")}</b>
+`;
+
+if(isAdmin){
+
+let validateBtn = document.createElement("button");
+validateBtn.textContent = "✅ Valider";
+validateBtn.className = "greenBtn";
+
+validateBtn.onclick = async ()=>{
+await updateDoc(doc(db,"orders",id),{
+status:"validated"
+});
+}
+
+let delBtn = document.createElement("button");
+delBtn.textContent = "🗑 Supprimer";
+delBtn.className = "redBtn";
+
+ delBtn.onclick = async ()=>{
+await deleteDoc(doc(db,"orders",id));
+}
+
+ div.appendChild(validateBtn);
+ div.appendChild(delBtn);
+}
+
+history.appendChild(div);
+total++;
+
+});
+
+count.textContent = total;
+
+});
+}
+
+// USERS
+
+async function loadUsers(){
+
+usersList.innerHTML = "";
+
+const snap = await getDocs(collection(db,"users"));
+
+let totalUsers = 0;
+
+snap.forEach((d)=>{
+
+const data = d.data();
+const id = d.id;
+
+let div = document.createElement("div");
+div.className = "item";
+
+div.innerHTML = `
+👤 <b>${escapeHtml(data.username)}</b><br>
+🔐 ${data.approved ? "✅ Autorisé" : "❌ Bloqué"}<br>
+🛡 ${escapeHtml(data.role || "user")}
+`;
+
+let btn = document.createElement("button");
+btn.textContent = data.approved ? "❌ Bloquer" : "✅ Autoriser";
+btn.className = data.approved ? "redBtn" : "greenBtn";
+
+btn.onclick = async ()=>{
+await updateDoc(doc(db,"users",id),{
+approved: !data.approved
+});
+loadUsers();
+}
+
+let delBtn = document.createElement("button");
+delBtn.textContent = "🗑 Supprimer";
+delBtn.className = "redBtn";
+
+ delBtn.onclick = async ()=>{
+await deleteDoc(doc(db,"users",id));
+loadUsers();
+}
+
+ div.appendChild(btn);
+ div.appendChild(delBtn);
+
+usersList.appendChild(div);
+
+totalUsers++;
+
+});
+
+let counter = document.createElement("div");
+counter.className = "counter";
+counter.innerHTML = `👥 Total utilisateurs : ${totalUsers}`;
+
+usersList.prepend(counter);
+}
+
+// LINKS
+
+window.addLink = async function(){
+
+const title = document.getElementById("linkTitle").value.trim();
+const url = document.getElementById("linkUrl").value.trim();
+
+if(!title || !url){
+return alert("Remplissez les champs");
+}
+
+await addDoc(collection(db,"links"),{
+title,
+url,
+created:new Date().toISOString()
+});
+
+alert("Lien ajouté");
+loadLinks();
+}
+
+async function loadLinks(){
+
+linksBox.innerHTML = "";
+
+const snap = await getDocs(collection(db,"links"));
+
+snap.forEach((d)=>{
+
+const data = d.data();
+
+let div = document.createElement("div");
+div.className = "item";
+
+div.innerHTML = `
+🔗 <a href="${data.url}" target="_blank">
+${escapeHtml(data.title)}
+</a>
+`;
+
+linksBox.appendChild(div);
+});
+}
+
+// CODES
+
+window.createCode = async function(){
+
+const code = document.getElementById("newCode").value.trim();
+
+if(!code){
+return alert("Entrez un code");
+}
+
+await addDoc(collection(db,"codes"),{
+code,
+used:false,
+active:true,
+owner:"",
+created:new Date().toISOString()
+});
+
+alert("Code créé");
+loadCodes();
+}
+
+async function loadCodes(){
+
+codesList.innerHTML = "";
+
+const snap = await getDocs(collection(db,"codes"));
+
+snap.forEach((d)=>{
+
+const data = d.data();
+
+let div = document.createElement("div");
+div.className = "item";
+
+div.innerHTML = `
+🔑 ${escapeHtml(data.code)}<br>
+📌 ${data.active ? "Actif" : "Désactivé"}<br>
+👤 ${escapeHtml(data.owner || "Libre")}
+`;
+
+codesList.appendChild(div);
+});
+}
+
+// LOGOUT
+
+window.logout = function(){
+localStorage.removeItem("currentUser");
+location.reload();
+}
+
+// AUTO LOGIN
+
+window.addEventListener("load",()=>{
+
+if(currentUser){
+
+if(currentUser === "ADMIN"){
+isAdmin = true;
+}
+
+loadApp();
+}
+
+});
+
+</script>
+
+</body>
+</html>
